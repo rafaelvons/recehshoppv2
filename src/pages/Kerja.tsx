@@ -134,7 +134,7 @@ export default function KerjaPage() {
   return (
     <div className="space-y-4">
       <div className="border-2 border-line bg-surface p-4">
-        <h2 className="text-lg font-black uppercase tracking-tight">Cata Log Kerja & Pembagian Hasil</h2>
+        <h2 className="text-lg font-black uppercase tracking-tight">Catat Log Kerja & Pembagian Hasil</h2>
         <p className="text-[12px] font-bold text-ink-3">
           Cari barang/jasa dari daftar, tentukan pegawai yang mengerjakan, dan porsi hasil akan terhitung otomatis.
         </p>
