@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { CheckCircle } from "@phosphor-icons/react";
 import type { Order, OrderStatus, RangeKey } from "./types";
-import { useOrders, useTheme } from "./lib/storage";
+import { useOrders, clearOrders, savePeriod } from "./lib/storage";
 import { downloadCSV } from "./lib/csv";
 import Toolbar from "./components/Toolbar";
 import KpiCards, { computeKpis } from "./components/KpiCards";
 import RevenueChart from "./components/RevenueChart";
 import StatusPanel from "./components/StatusPanel";
-import TopProducts from "./components/TopProducts";
 import OrderTable from "./components/OrderTable";
-import { AddOrderModal, ImportModal, SyncModal } from "./components/Modals";
+import WorkerSummary from "./components/WorkerSummary";
+import ClosePeriodModal from "./components/ClosePeriodModal";
+import { ImportModal, SyncModal } from "./components/Modals";
 import AppShell from "./components/AppShell";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
@@ -43,13 +44,13 @@ function inRange(o: Order, days: number | "all"): boolean {
 }
 
 function Dashboard() {
-  const { orders, addOrder, addOrders, removeOrder } = useOrders();
+  const { orders, setOrders, addOrders, removeOrder } = useOrders();
   const [dbLogs, setDbLogs] = useState<LogKerja[]>([]);
   const [range, setRange] = useState<RangeKey>("30");
-  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<OrderStatus | "all">("all");
   const [showImport, setShowImport] = useState(false);
   const [showSync, setShowSync] = useState(false);
+  const [showClosePeriod, setShowClosePeriod] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -73,17 +74,8 @@ function Dashboard() {
   const filtered = useMemo(() => {
     let list = combinedOrders.filter((o) => inRange(o, range === "all" ? "all" : Number(range)));
     if (status !== "all") list = list.filter((o) => o.status === status);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (o) =>
-          o.product.toLowerCase().includes(q) ||
-          o.game.toLowerCase().includes(q) ||
-          o.no.toLowerCase().includes(q)
-      );
-    }
     return list;
-  }, [combinedOrders, range, status, search]);
+  }, [combinedOrders, range, status]);
 
   const kpis = useMemo(
     () => computeKpis(combinedOrders, range === "all" ? "all" : Number(range)),
@@ -120,14 +112,6 @@ function Dashboard() {
     showToast("CSV diexport");
   }, [combinedOrders, showToast]);
 
-  const handleAdd = useCallback(
-    (o: Order) => {
-      addOrder(o);
-      showToast("Pesanan ditambahkan");
-    },
-    [addOrder, showToast]
-  );
-
   const handleDelete = useCallback(
     (id: string) => {
       if (id.startsWith("log-")) {
@@ -144,32 +128,63 @@ function Dashboard() {
     [removeOrder, showToast]
   );
 
+  const handleClosePeriod = useCallback(async () => {
+    const revenue = combinedOrders.reduce((s, o) => s + o.income, 0);
+    const delivered = combinedOrders.filter((o) => o.status === "DELIVERED").length;
+    const processing = combinedOrders.filter((o) => o.status === "REQUIRE_PROCESS").length;
+    const refunded = combinedOrders.filter((o) => o.status === "REFUNDED").length;
+    const workerPayout = dbLogs.reduce((s, l) => s + l.total, 0);
+
+    savePeriod({
+      id: Date.now().toString(36),
+      closedAt: new Date().toISOString(),
+      totalRevenue: revenue,
+      totalOrders: combinedOrders.length,
+      delivered,
+      refunded,
+      processing,
+      workerPayout,
+    });
+
+    try {
+      await api.clearLogs();
+    } catch {
+      // continue: logs may fail, but local orders still cleared
+    }
+    clearOrders();
+    setOrders([]);
+    setDbLogs([]);
+    setShowClosePeriod(false);
+    showToast("Periode ditutup. Semua data dimulai dari 0.");
+  }, [combinedOrders, dbLogs, setOrders, showToast]);
+
   return (
     <div className="min-h-dvh">
       <main className="mx-auto max-w-[1200px] px-5 pb-14">
         <Toolbar
           range={range}
           onRange={setRange}
-          search={search}
-          onSearch={setSearch}
           status={status}
           onStatus={setStatus}
           onSync={() => setShowSync(true)}
           onImport={() => setShowImport(true)}
           onExport={handleExport}
+          onClosePeriod={() => setShowClosePeriod(true)}
         />
 
-        <KpiCards data={kpis} />
+        <div className="mt-4">
+          <KpiCards data={kpis} />
+        </div>
 
-        <div className="mt-3.5 grid grid-cols-1 gap-3.5 lg:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <RevenueChart orders={filtered} days={chartDays} />
           </div>
           <StatusPanel orders={filtered} />
         </div>
 
-        <div className="mt-3.5 grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-          <TopProducts orders={filtered} />
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <WorkerSummary days={range === "all" ? "all" : Number(range)} />
           <div className="lg:col-span-2">
             <OrderTable orders={filtered} onDelete={handleDelete} />
           </div>
@@ -182,6 +197,14 @@ function Dashboard() {
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={handleImport} />}
       {showSync && <SyncModal onClose={() => setShowSync(false)} onSync={handleSync} />}
+      {showClosePeriod && (
+        <ClosePeriodModal
+          orders={combinedOrders}
+          logs={dbLogs}
+          onClose={() => setShowClosePeriod(false)}
+          onConfirm={handleClosePeriod}
+        />
+      )}
 
       <div
         className={`pointer-events-none fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-line-strong bg-surface-2 px-5 py-2.5 text-[13px] font-semibold shadow-2xl transition-all duration-300 ${

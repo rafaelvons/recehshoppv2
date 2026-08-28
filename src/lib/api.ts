@@ -94,6 +94,32 @@ export const api = {
     return data as Barang[];
   },
 
+  async createBarang(body: {
+    nama_game: string;
+    nama_item: string;
+    harga_jual: number;
+    stok?: number;
+    nama_tipe?: string;
+  }): Promise<Barang> {
+    const harga_jual = body.harga_jual;
+    const harga_asli = Math.round(harga_jual / 0.88);
+    const { data, error } = await supabase
+      .from("barang")
+      .insert({
+        nama_game: body.nama_game.trim(),
+        nama_item: body.nama_item.trim(),
+        nama_tipe: (body.nama_tipe ?? "").trim(),
+        harga_jual,
+        harga_asli,
+        stok: body.stok ?? 0,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data as Barang;
+  },
+
   async updateHarga(id: number, harga_jual: number): Promise<{ ok: true }> {
     const harga_asli = Math.round(harga_jual / 0.88);
     const { error } = await supabase
@@ -189,6 +215,12 @@ export const api = {
 
   async deleteLog(id: number): Promise<{ ok: true }> {
     const { error } = await supabase.from("log_kerja").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
+  async clearLogs(): Promise<{ ok: true }> {
+    const { error } = await supabase.from("log_kerja").delete().neq("id", 0);
     if (error) throw new Error(error.message);
     return { ok: true };
   },

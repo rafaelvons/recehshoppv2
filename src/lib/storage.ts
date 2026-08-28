@@ -4,6 +4,18 @@ import { seedDemo } from "./seed";
 
 const KEY = "itemku_dash_orders_v2";
 const THEME_KEY = "itemku_dash_theme";
+const PERIOD_KEY = "itemku_dash_periods";
+
+export interface PeriodSummary {
+  id: string;
+  closedAt: string;
+  totalRevenue: number;
+  totalOrders: number;
+  delivered: number;
+  refunded: number;
+  processing: number;
+  workerPayout: number;
+}
 
 function loadOrders(): Order[] {
   try {
@@ -54,7 +66,30 @@ export function useOrders() {
     setOrders([]);
   }, []);
 
-  return { orders, addOrders, addOrder, removeOrder, resetDemo, clearAll };
+  return { orders, setOrders, addOrders, addOrder, removeOrder, resetDemo, clearAll };
+}
+
+export function loadPeriods(): PeriodSummary[] {
+  try {
+    const raw = localStorage.getItem(PERIOD_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PeriodSummary[];
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+export function savePeriod(summary: PeriodSummary): void {
+  const periods = loadPeriods();
+  periods.unshift(summary);
+  localStorage.setItem(PERIOD_KEY, JSON.stringify(periods.slice(0, 24)));
+}
+
+export function clearOrders(): void {
+  localStorage.setItem(KEY, JSON.stringify([]));
 }
 
 export function useTheme() {
