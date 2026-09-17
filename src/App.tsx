@@ -19,7 +19,7 @@ import BarangPage from "./pages/Barang";
 import KerjaPage from "./pages/Kerja";
 import UbahHargaPage from "./pages/UbahHarga";
 
-import { api, type LogKerja } from "./lib/api";
+import { api, type LogKerja, type User } from "./lib/api";
 
 function logToOrder(l: LogKerja): Order {
   return {
