@@ -58,7 +58,7 @@ export default function AppShell() {
           <div className="flex items-center gap-2">
             <div className="hidden text-right sm:block">
               <div className="text-[12px] font-black leading-none">{user?.username ?? "-"}</div>
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-ink-3">pegawai</div>
+              <div className="text-[10px] font-bold text-ink-3">{user?.email ? user.email : "pegawai"}</div>
             </div>
             <button
               onClick={toggleTheme}

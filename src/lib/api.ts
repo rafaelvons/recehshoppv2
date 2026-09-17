@@ -5,6 +5,7 @@ import { supabase } from "./supabase";
 export interface User {
   id: string; // UUID from Supabase Auth
   username: string;
+  email?: string;
 }
 
 export interface Barang {
@@ -36,7 +37,7 @@ export interface LogKerja {
 
 // ---------- Helpers ----------
 
-/** We store usernames as fake emails so Supabase Auth works with username/password. */
+/** Fallback email builder for legacy accounts without explicit email */
 function toEmail(username: string): string {
   const clean = username.toLowerCase().trim().replace(/[^a-z0-9._-]/g, "");
   return `${clean || "user"}@gmail.com`;
@@ -51,29 +52,75 @@ function throwOnError<T>(result: { data: T; error: { message: string } | null })
 
 export const api = {
   // Auth
-  async login(username: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: toEmail(username),
-      password,
-    });
-    if (error) throw new Error(error.message);
-    return {
-      id: data.user.id,
-      username: data.user.user_metadata.username ?? username,
-    };
-  },
+  async login(identifier: string, password: string): Promise<User> {
+    const cleanInput = identifier.trim();
+    if (!cleanInput) throw new Error("Username atau email wajib diisi");
+    
+    let targetEmail = cleanInput;
+    if (!cleanInput.includes("@")) {
+      targetEmail = toEmail(cleanInput);
+    }
 
-  async register(username: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signUp({
-      email: toEmail(username),
+    let { data, error } = await supabase.auth.signInWithPassword({
+      email: targetEmail,
       password,
-      options: { data: { username } },
     });
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error("Registrasi gagal");
+
+    if (error && !cleanInput.includes("@")) {
+      // If logging in with username failed on fallback email, return user friendly error
+      throw new Error("Username/Email atau Password salah");
+    }
+
+    if (error) {
+      throw new Error(error.message === "Invalid login credentials" ? "Email atau Password salah" : error.message);
+    }
+
+    if (!data.user) throw new Error("Login gagal");
+
+    const username =
+      (data.user.user_metadata?.username as string) ??
+      cleanInput.split("@")[0];
+
     return {
       id: data.user.id,
       username,
+      email: data.user.email,
+    };
+  },
+
+  async register(username: string, email: string, password: string): Promise<User> {
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanUsername) throw new Error("Username tidak boleh kosong");
+    if (!cleanEmail || !cleanEmail.includes("@")) throw new Error("Email tidak valid");
+    if (password.length < 6) throw new Error("Password minimal 6 karakter");
+
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: { username: cleanUsername },
+      },
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error("Registrasi gagal. Silakan coba lagi.");
+
+    // Sync profile username
+    try {
+      await supabase.from("profiles").upsert(
+        { id: data.user.id, username: cleanUsername },
+        { onConflict: "id" }
+      );
+    } catch {
+      // Profile auto-trigger will also execute
+    }
+
+    return {
+      id: data.user.id,
+      username: cleanUsername,
+      email: cleanEmail,
     };
   },
 
@@ -219,8 +266,20 @@ export const api = {
     return { ok: true };
   },
 
-  async clearLogs(): Promise<{ ok: true }> {
-    const { error } = await supabase.from("log_kerja").delete().neq("id", 0);
+  async clearLogs(targetUserId?: string): Promise<{ ok: true }> {
+    let uid = targetUserId;
+    if (!uid || uid === "me") {
+      const { data: { session } } = await supabase.auth.getSession();
+      uid = session?.user?.id;
+    }
+
+    let query = supabase.from("log_kerja").delete();
+    if (uid && uid !== "all") {
+      query = query.eq("user_id", uid);
+    } else {
+      query = query.neq("id", 0);
+    }
+    const { error } = await query;
     if (error) throw new Error(error.message);
     return { ok: true };
   },

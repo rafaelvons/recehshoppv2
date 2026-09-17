@@ -46,6 +46,7 @@ function inRange(o: Order, days: number | "all"): boolean {
 function Dashboard() {
   const { orders, setOrders, addOrders, removeOrder } = useOrders();
   const [dbLogs, setDbLogs] = useState<LogKerja[]>([]);
+  const [profiles, setProfiles] = useState<User[]>([]);
   const [range, setRange] = useState<RangeKey>("30");
   const [status, setStatus] = useState<OrderStatus | "all">("all");
   const [showImport, setShowImport] = useState(false);
@@ -56,6 +57,7 @@ function Dashboard() {
 
   useEffect(() => {
     api.getLogs().then(setDbLogs).catch(console.error);
+    api.getProfiles().then(setProfiles).catch(console.error);
   }, []);
 
   const combinedOrders = useMemo(() => {
@@ -128,35 +130,47 @@ function Dashboard() {
     [removeOrder, showToast]
   );
 
-  const handleClosePeriod = useCallback(async () => {
-    const revenue = combinedOrders.reduce((s, o) => s + o.income, 0);
-    const delivered = combinedOrders.filter((o) => o.status === "DELIVERED").length;
-    const processing = combinedOrders.filter((o) => o.status === "REQUIRE_PROCESS").length;
-    const refunded = combinedOrders.filter((o) => o.status === "REFUNDED").length;
-    const workerPayout = dbLogs.reduce((s, l) => s + l.total, 0);
+  const handleClosePeriod = useCallback(
+    async (targetUserId?: string) => {
+      const revenue = combinedOrders.reduce((s, o) => s + o.income, 0);
+      const delivered = combinedOrders.filter((o) => o.status === "DELIVERED").length;
+      const processing = combinedOrders.filter((o) => o.status === "REQUIRE_PROCESS").length;
+      const refunded = combinedOrders.filter((o) => o.status === "REFUNDED").length;
+      const workerPayout = dbLogs.reduce((s, l) => s + l.total, 0);
 
-    savePeriod({
-      id: Date.now().toString(36),
-      closedAt: new Date().toISOString(),
-      totalRevenue: revenue,
-      totalOrders: combinedOrders.length,
-      delivered,
-      refunded,
-      processing,
-      workerPayout,
-    });
+      savePeriod({
+        id: Date.now().toString(36),
+        closedAt: new Date().toISOString(),
+        totalRevenue: revenue,
+        totalOrders: combinedOrders.length,
+        delivered,
+        refunded,
+        processing,
+        workerPayout,
+      });
 
-    try {
-      await api.clearLogs();
-    } catch {
-      // continue: logs may fail, but local orders still cleared
-    }
-    clearOrders();
-    setOrders([]);
-    setDbLogs([]);
-    setShowClosePeriod(false);
-    showToast("Periode ditutup. Semua data dimulai dari 0.");
-  }, [combinedOrders, dbLogs, setOrders, showToast]);
+      try {
+        await api.clearLogs(targetUserId);
+      } catch (err) {
+        console.error("Gagal mereset log:", err);
+      }
+
+      if (targetUserId === "all") {
+        clearOrders();
+        setOrders([]);
+      }
+
+      const freshLogs = await api.getLogs().catch(() => []);
+      setDbLogs(freshLogs);
+      setShowClosePeriod(false);
+      showToast(
+        targetUserId === "all"
+          ? "Periode ditutup global. Semua data dimulai dari 0."
+          : "Periode pegawai berhasil ditutup. Log kerja berhasil di-reset."
+      );
+    },
+    [combinedOrders, dbLogs, setOrders, showToast]
+  );
 
   return (
     <div className="min-h-dvh">
@@ -201,6 +215,7 @@ function Dashboard() {
         <ClosePeriodModal
           orders={combinedOrders}
           logs={dbLogs}
+          profiles={profiles}
           onClose={() => setShowClosePeriod(false)}
           onConfirm={handleClosePeriod}
         />

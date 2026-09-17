@@ -28,9 +28,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser({
           id: session.user.id,
           username:
-            (session.user.user_metadata.username as string) ??
+            (session.user.user_metadata?.username as string) ??
             session.user.email?.split("@")[0] ??
             "",
+          email: session.user.email,
         });
       }
       setLoading(false);
@@ -44,9 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser({
           id: session.user.id,
           username:
-            (session.user.user_metadata.username as string) ??
+            (session.user.user_metadata?.username as string) ??
             session.user.email?.split("@")[0] ??
             "",
+          email: session.user.email,
         });
       } else {
         setUser(null);

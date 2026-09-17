@@ -101,10 +101,13 @@ create policy "Log: authenticated can insert own"
   to anon, authenticated
   with check (true);
 
-create policy "Log: users can delete own"
+drop policy if exists "Log: users can delete own" on public.log_kerja;
+drop policy if exists "Log: authenticated can delete" on public.log_kerja;
+
+create policy "Log: authenticated can delete"
   on public.log_kerja for delete
   to authenticated
-  using (user_id = auth.uid());
+  using (true);
 
 create index if not exists idx_log_user on public.log_kerja(user_id);
 create index if not exists idx_log_tanggal on public.log_kerja(created_at);
