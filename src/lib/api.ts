@@ -222,13 +222,14 @@ export const api = {
 
     let splitTag = "";
     if (workerCount > 1) {
-      // Fetch usernames for workerIds
+      // Fetch usernames for workerIds maintaining selection order
       const { data: profs } = await supabase
         .from("profiles")
         .select("id, username")
         .in("id", workerIds);
       
-      const usernames = profs?.map((p) => p.username) ?? [];
+      const profileMap = new Map((profs ?? []).map((p) => [p.id, p.username]));
+      const usernames = workerIds.map((id) => profileMap.get(id)).filter(Boolean) as string[];
       splitTag = ` [Split ${workerCount} Pegawai: ${usernames.join(", ")}]`;
     }
 
@@ -250,34 +251,27 @@ export const api = {
   async getLogs(): Promise<LogKerja[]> {
     const { data, error } = await supabase
       .from("log_kerja")
-      .select(
-        `id, deskripsi, qty, harga_satuan, total, created_at,
-         profiles(username),
-         barang(nama_item, nama_game)`
-      )
+      .select("*, profiles(username), barang(nama_game, nama_item)")
       .order("created_at", { ascending: false });
+
     if (error) throw new Error(error.message);
 
-    // Flatten the nested PostgREST response
-    return (data as unknown[]).map((row: unknown) => {
-      const r = row as Record<string, unknown>;
-      const profile = r.profiles as { username: string } | null;
-      const barang = r.barang as { nama_item: string; nama_game: string } | null;
-      return {
-        id: r.id as number,
-        deskripsi: r.deskripsi as string,
-        qty: r.qty as number,
-        harga_satuan: r.harga_satuan as number,
-        total: r.total as number,
-        created_at: r.created_at as string,
-        username: profile?.username ?? "",
-        nama_item: barang?.nama_item ?? "",
-        nama_game: barang?.nama_game ?? "",
-      };
-    });
+    return (data as any[]).map((row) => ({
+      id: row.id,
+      created_at: row.created_at,
+      user_id: row.user_id,
+      barang_id: row.barang_id,
+      deskripsi: row.deskripsi,
+      qty: row.qty,
+      harga_satuan: row.harga_satuan,
+      total: row.total,
+      username: row.profiles?.username ?? "Unknown",
+      nama_game: row.barang?.nama_game ?? "Unknown",
+      nama_item: row.barang?.nama_item ?? "Unknown",
+    }));
   },
 
-  async deleteLog(id: number): Promise<{ ok: true }> {
+  async deleteLog(id: number): Promise<{ ok: boolean }> {
     const { error } = await supabase.from("log_kerja").delete().eq("id", id);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -322,21 +316,29 @@ export function parseWorkerPayouts(logs: LogKerja[]): Map<string, { total: numbe
 
   for (const l of logs) {
     // Check if deskripsi contains [Split X Pegawai: ...]
-    const match = l.deskripsi.match(/\[Split\s+\d+\s+Pegawai(?:\s*:\s*([^\]]+))?\]/i);
+    const match = l.deskripsi.match(/\[Split\s+(\d+)\s+Pegawai(?:\s*:\s*([^\]]+))?\]/i);
     if (match) {
-      const namesStr = match[1];
-      if (namesStr) {
-        const names = namesStr.split(",").map((s) => s.trim()).filter(Boolean);
-        if (names.length > 0) {
-          const share = Math.round(l.total / names.length);
-          for (const name of names) {
-            const cur = map.get(name) ?? { total: 0, jobs: 0 };
-            cur.total += share;
-            cur.jobs += 1;
-            map.set(name, cur);
-          }
-          continue;
+      const countFromTag = Number(match[1]) || 1;
+      const namesStr = match[2];
+      const names = namesStr ? namesStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      const actualCount = Math.max(countFromTag, names.length);
+      const share = Math.round(l.total / actualCount);
+
+      if (names.length > 0) {
+        for (const name of names) {
+          const cur = map.get(name) ?? { total: 0, jobs: 0 };
+          cur.total += share;
+          cur.jobs += 1;
+          map.set(name, cur);
         }
+        continue;
+      } else {
+        const workerName = l.username || "Unknown";
+        const cur = map.get(workerName) ?? { total: 0, jobs: 0 };
+        cur.total += share;
+        cur.jobs += 1;
+        map.set(workerName, cur);
+        continue;
       }
     }
 
