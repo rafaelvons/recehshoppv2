@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Warning, X, CheckCircle, Users, User as UserIcon } from "@phosphor-icons/react";
 import type { Order } from "../types";
-import type { LogKerja, User } from "../lib/api";
+import { parseWorkerPayouts, type LogKerja, type User } from "../lib/api";
 import { fmtIDR, fmtNum } from "../lib/format";
 import { useAuth } from "../lib/auth";
 
@@ -24,13 +24,7 @@ export default function ClosePeriodModal({ orders, logs, profiles = [], onClose,
     const processing = orders.filter((o) => o.status === "REQUIRE_PROCESS").length;
     const refunded = orders.filter((o) => o.status === "REFUNDED").length;
 
-    const workerMap = new Map<string, { userId?: string; total: number; jobs: number }>();
-    for (const l of logs) {
-      const cur = workerMap.get(l.username) ?? { total: 0, jobs: 0 };
-      cur.total += l.total;
-      cur.jobs += 1;
-      workerMap.set(l.username, cur);
-    }
+    const workerMap = parseWorkerPayouts(logs);
     const workers = Array.from(workerMap.entries())
       .map(([name, { total, jobs }]) => ({ name, total, jobs }))
       .sort((a, b) => b.total - a.total);

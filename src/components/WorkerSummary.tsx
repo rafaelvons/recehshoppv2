@@ -1,5 +1,5 @@
 import { Users } from "@phosphor-icons/react";
-import { api, type LogKerja } from "../lib/api";
+import { api, parseWorkerPayouts, type LogKerja } from "../lib/api";
 import { fmtIDR } from "../lib/format";
 import { useEffect, useMemo, useState } from "react";
 
@@ -19,14 +19,9 @@ export default function WorkerSummary({ days }: Props) {
     cutoff.setHours(0, 0, 0, 0);
     if (days !== "all") cutoff.setDate(cutoff.getDate() - (Number(days) - 1));
 
-    const map = new Map<string, { total: number; jobs: number }>();
-    for (const l of logs) {
-      if (days !== "all" && new Date(l.created_at) < cutoff) continue;
-      const cur = map.get(l.username) ?? { total: 0, jobs: 0 };
-      cur.total += l.total;
-      cur.jobs += 1;
-      map.set(l.username, cur);
-    }
+    const filteredLogs = days === "all" ? logs : logs.filter((l) => new Date(l.created_at) >= cutoff);
+    const map = parseWorkerPayouts(filteredLogs);
+
     return Array.from(map.entries())
       .map(([name, { total, jobs }]) => ({ name, total, jobs }))
       .sort((a, b) => b.total - a.total);

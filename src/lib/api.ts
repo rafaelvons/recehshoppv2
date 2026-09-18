@@ -211,20 +211,28 @@ export const api = {
     const grossTotal = body.qty * barang.harga_jual;
     const totalPerPerson = Math.round(grossTotal / workerCount);
 
-    const splitTag =
-      workerCount > 1 ? ` [Split ${workerCount} Pegawai]` : "";
-    const finalDesc = `${body.deskripsi}${splitTag}`;
+    let splitTag = "";
+    if (workerCount > 1) {
+      // Fetch usernames for workerIds
+      const { data: profs } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", workerIds);
+      
+      const usernames = profs?.map((p) => p.username) ?? [];
+      splitTag = ` [Split ${workerCount} Pegawai: ${usernames.join(", ")}]`;
+    }
 
-    const records = workerIds.map((uid) => ({
-      user_id: uid,
+    const record = {
+      user_id: body.user_id,
       barang_id: body.barang_id,
-      deskripsi: finalDesc,
+      deskripsi: `${body.deskripsi}${splitTag}`,
       qty: body.qty,
       harga_satuan: barang.harga_jual,
-      total: totalPerPerson,
-    }));
+      total: grossTotal,
+    };
 
-    const { error } = await supabase.from("log_kerja").insert(records);
+    const { error } = await supabase.from("log_kerja").insert(record);
     if (error) throw new Error(error.message);
 
     return { count: workerCount, totalPerPerson };
@@ -299,3 +307,37 @@ export const api = {
     };
   },
 };
+
+export function parseWorkerPayouts(logs: LogKerja[]): Map<string, { total: number; jobs: number }> {
+  const map = new Map<string, { total: number; jobs: number }>();
+
+  for (const l of logs) {
+    // Check if deskripsi contains [Split X Pegawai: ...]
+    const match = l.deskripsi.match(/\[Split\s+\d+\s+Pegawai(?:\s*:\s*([^\]]+))?\]/i);
+    if (match) {
+      const namesStr = match[1];
+      if (namesStr) {
+        const names = namesStr.split(",").map((s) => s.trim()).filter(Boolean);
+        if (names.length > 0) {
+          const share = Math.round(l.total / names.length);
+          for (const name of names) {
+            const cur = map.get(name) ?? { total: 0, jobs: 0 };
+            cur.total += share;
+            cur.jobs += 1;
+            map.set(name, cur);
+          }
+          continue;
+        }
+      }
+    }
+
+    // Fallback: single worker
+    const workerName = l.username || "Unknown";
+    const cur = map.get(workerName) ?? { total: 0, jobs: 0 };
+    cur.total += l.total;
+    cur.jobs += 1;
+    map.set(workerName, cur);
+  }
+
+  return map;
+}

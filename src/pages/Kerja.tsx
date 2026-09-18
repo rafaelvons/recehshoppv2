@@ -123,13 +123,27 @@ export default function KerjaPage() {
   };
 
   const displayedLogs = useMemo(() => {
-    if (filterView === "mine") {
-      return logs.filter((l) => l.username === user?.username);
+    if (filterView === "mine" && user?.username) {
+      const myName = user.username.toLowerCase();
+      return logs.filter(
+        (l) =>
+          l.username.toLowerCase() === myName ||
+          l.deskripsi.toLowerCase().includes(myName)
+      );
     }
     return logs;
   }, [logs, filterView, user?.username]);
 
-  const totalSum = displayedLogs.reduce((sum, l) => sum + l.total, 0);
+  const totalSum = useMemo(() => {
+    return displayedLogs.reduce((sum, l) => {
+      if (filterView === "mine" && user?.username) {
+        const match = l.deskripsi.match(/\[Split\s+(\d+)\s+Pegawai/i);
+        const count = match ? Number(match[1]) : 1;
+        return sum + Math.round(l.total / count);
+      }
+      return sum + l.total;
+    }, 0);
+  }, [displayedLogs, filterView, user?.username]);
 
   return (
     <div className="space-y-4">
@@ -337,18 +351,22 @@ export default function KerjaPage() {
           <table className="w-full text-left text-[13px]">
             <thead className="border-b-2 border-line bg-bg">
               <tr className="font-black uppercase tracking-wide">
-                <th className="px-3 py-2">Pegawai</th>
+                <th className="px-3 py-2">Pembuat Log</th>
                 <th className="px-3 py-2">Tanggal</th>
                 <th className="px-3 py-2">Game & Item</th>
-                <th className="px-3 py-2">Nama Pembeli</th>
+                <th className="px-3 py-2">Nama Pembeli & Info Split</th>
                 <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Porsi Diterima</th>
+                <th className="px-3 py-2 text-right">Total / Porsi</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/30">
               {displayedLogs.map((l) => {
                 const isMine = l.username === user?.username;
+                const match = l.deskripsi.match(/\[Split\s+(\d+)\s+Pegawai/i);
+                const splitCount = match ? Number(match[1]) : 1;
+                const porsiPerPerson = Math.round(l.total / splitCount);
+
                 return (
                   <tr key={l.id} className="hover:bg-surface-2">
                     <td className="px-3 py-2 font-bold">
@@ -362,7 +380,14 @@ export default function KerjaPage() {
                     </td>
                     <td className="px-3 py-2">{l.deskripsi}</td>
                     <td className="px-3 py-2 text-right font-bold">{l.qty}</td>
-                    <td className="px-3 py-2 text-right font-black text-brand-strong">{formatRupiah(l.total)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="font-black text-brand-strong">{formatRupiah(l.total)}</div>
+                      {splitCount > 1 && (
+                        <div className="text-[10px] font-bold text-ink-3">
+                          Porsi: {formatRupiah(porsiPerPerson)} / org
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       {isMine && (
                         <button onClick={() => handleDelete(l.id)} className="text-bad hover:text-ink" title="Hapus log">

@@ -155,10 +155,8 @@ function Dashboard() {
         console.error("Gagal mereset log:", err);
       }
 
-      if (targetUserId === "all") {
-        clearOrders();
-        setOrders([]);
-      }
+      clearOrders();
+      setOrders([]);
 
       const freshLogs = await api.getLogs().catch(() => []);
       setDbLogs(freshLogs);
