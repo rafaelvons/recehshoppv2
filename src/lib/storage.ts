@@ -88,6 +88,10 @@ export function savePeriod(summary: PeriodSummary): void {
   localStorage.setItem(PERIOD_KEY, JSON.stringify(periods.slice(0, 24)));
 }
 
+export function clearPeriods(): void {
+  localStorage.removeItem(PERIOD_KEY);
+}
+
 export function clearOrders(): void {
   localStorage.setItem(KEY, JSON.stringify([]));
 }

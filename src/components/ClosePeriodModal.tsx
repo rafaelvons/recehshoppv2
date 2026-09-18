@@ -15,7 +15,7 @@ interface Props {
 
 export default function ClosePeriodModal({ orders, logs, profiles = [], onClose, onConfirm }: Props) {
   const { user } = useAuth();
-  const [targetWorker, setTargetWorker] = useState<string>(user?.id ?? "me");
+  const [targetWorker, setTargetWorker] = useState<string>("all");
   const [confirmText, setConfirmText] = useState("");
 
   const summary = useMemo(() => {
@@ -74,8 +74,8 @@ export default function ClosePeriodModal({ orders, logs, profiles = [], onClose,
             onChange={(e) => setTargetWorker(e.target.value)}
             className="w-full border-2 border-line bg-surface px-3 py-2 text-xs font-bold text-ink focus:bg-bg"
           >
-            <option value={user?.id ?? "me"}>Log Saya Sahaja ({user?.username ?? "Saya"})</option>
             <option value="all">Semua Pegawai & Data Toko (Global Reset)</option>
+            <option value={user?.id ?? "me"}>Log Saya Sahaja ({user?.username ?? "Saya"})</option>
             {profiles
               .filter((p) => p.id !== user?.id)
               .map((p) => (

@@ -220,6 +220,9 @@ export const api = {
     const grossTotal = body.qty * barang.harga_jual;
     const totalPerPerson = Math.round(grossTotal / workerCount);
 
+    // If 1 worker selected, assign user_id to that specific worker
+    const targetUserId = workerCount === 1 ? workerIds[0] : body.user_id;
+
     let splitTag = "";
     if (workerCount > 1) {
       // Fetch usernames for workerIds maintaining selection order
@@ -234,7 +237,7 @@ export const api = {
     }
 
     const record = {
-      user_id: body.user_id,
+      user_id: targetUserId,
       barang_id: body.barang_id,
       deskripsi: `${body.deskripsi}${splitTag}`,
       qty: body.qty,
@@ -277,21 +280,50 @@ export const api = {
     return { ok: true };
   },
 
-  async clearLogs(targetUserId?: string): Promise<{ ok: true }> {
+  async clearLogs(targetUserId?: string): Promise<{ ok: boolean }> {
     let uid = targetUserId;
     if (!uid || uid === "me") {
       const { data: { session } } = await supabase.auth.getSession();
       uid = session?.user?.id;
     }
 
-    let query = supabase.from("log_kerja").delete();
-    if (uid && uid !== "all") {
-      query = query.eq("user_id", uid);
+    if (!uid) throw new Error("User ID tidak ditemukan");
+
+    if (uid === "all") {
+      // Try calling RPC procedure first (bypasses RLS if created), fallback to delete query
+      const { error: rpcErr } = await supabase.rpc("clear_all_logs");
+      if (rpcErr) {
+        const { data: allLogs } = await supabase.from("log_kerja").select("id");
+        if (allLogs && allLogs.length > 0) {
+          const ids = allLogs.map((l) => l.id);
+          const { error } = await supabase.from("log_kerja").delete().in("id", ids);
+          if (error) throw new Error(error.message);
+        }
+      }
     } else {
-      query = query.neq("id", 0);
+      // Fetch target user's profile to get username
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", uid)
+        .maybeSingle();
+
+      const username = prof?.username;
+
+      // Delete logs created by target user
+      const { error: err1 } = await supabase.from("log_kerja").delete().eq("user_id", uid);
+      if (err1) throw new Error(err1.message);
+
+      // If username exists, also delete split logs mentioning this user
+      if (username) {
+        const { error: err2 } = await supabase
+          .from("log_kerja")
+          .delete()
+          .ilike("deskripsi", `%${username}%`);
+        if (err2) console.error("Error clearing split logs:", err2.message);
+      }
     }
-    const { error } = await query;
-    if (error) throw new Error(error.message);
+
     return { ok: true };
   },
 
