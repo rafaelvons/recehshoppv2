@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { User } from "./api";
+import { checkIsAdmin, type User } from "./api";
 import { supabase } from "./supabase";
 
 interface AuthCtx {
@@ -25,13 +25,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Restore session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
+        const username =
+          (session.user.user_metadata?.username as string) ??
+          session.user.email?.split("@")[0] ??
+          "";
         setUser({
           id: session.user.id,
-          username:
-            (session.user.user_metadata?.username as string) ??
-            session.user.email?.split("@")[0] ??
-            "",
+          username,
           email: session.user.email,
+          isAdmin: checkIsAdmin(username),
         });
       }
       setLoading(false);
@@ -42,13 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        const username =
+          (session.user.user_metadata?.username as string) ??
+          session.user.email?.split("@")[0] ??
+          "";
         setUser({
           id: session.user.id,
-          username:
-            (session.user.user_metadata?.username as string) ??
-            session.user.email?.split("@")[0] ??
-            "",
+          username,
           email: session.user.email,
+          isAdmin: checkIsAdmin(username),
         });
       } else {
         setUser(null);

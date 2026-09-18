@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Moon, Sun, List, CurrencyDollar, ClipboardText, SignOut } from "@phosphor-icons/react";
 import { useAuth } from "../lib/auth";
+import { checkIsAdmin } from "../lib/api";
 import { useTheme } from "../lib/storage";
 
 const nav = [
@@ -57,7 +58,14 @@ export default function AppShell() {
 
           <div className="flex items-center gap-2">
             <div className="hidden text-right sm:block">
-              <div className="text-[12px] font-black leading-none">{user?.username ?? "-"}</div>
+              <div className="flex items-center justify-end gap-1 text-[12px] font-black leading-none">
+                {user?.username ?? "-"}
+                {(user?.isAdmin || checkIsAdmin(user?.username)) && (
+                  <span className="border border-line bg-brand px-1 py-0.5 text-[9px] font-black text-bg uppercase">
+                    ADMIN
+                  </span>
+                )}
+              </div>
               <div className="text-[10px] font-bold text-ink-3">{user?.email ? user.email : "pegawai"}</div>
             </div>
             <button

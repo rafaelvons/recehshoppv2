@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash, Users, UserCheck, MagnifyingGlass, CaretDown, Check } from "@phosphor-icons/react";
-import { api, type Barang, type LogKerja, type User } from "../lib/api";
+import { api, checkIsAdmin, type Barang, type LogKerja, type User } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 function formatRupiah(n: number): string {
@@ -363,6 +363,8 @@ export default function KerjaPage() {
             <tbody className="divide-y divide-line/30">
               {displayedLogs.map((l) => {
                 const isMine = l.username === user?.username;
+                const isAdmin = checkIsAdmin(user?.username);
+                const canDelete = isMine || isAdmin;
                 const match = l.deskripsi.match(/\[Split\s+(\d+)\s+Pegawai/i);
                 const splitCount = match ? Number(match[1]) : 1;
                 const porsiPerPerson = Math.round(l.total / splitCount);
@@ -370,8 +372,11 @@ export default function KerjaPage() {
                 return (
                   <tr key={l.id} className="hover:bg-surface-2">
                     <td className="px-3 py-2 font-bold">
-                      <span className={`inline-block px-1.5 py-0.5 text-[11px] ${isMine ? "bg-brand/20 text-brand-strong" : "bg-surface-2"}`}>
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] ${isMine ? "bg-brand/20 text-brand-strong" : "bg-surface-2"}`}>
                         {l.username}
+                        {checkIsAdmin(l.username) && (
+                          <span className="text-[9px] font-black text-brand uppercase">[ADMIN]</span>
+                        )}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-ink-2">{new Date(l.created_at).toLocaleString("id-ID")}</td>
@@ -389,8 +394,12 @@ export default function KerjaPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {isMine && (
-                        <button onClick={() => handleDelete(l.id)} className="text-bad hover:text-ink" title="Hapus log">
+                      {canDelete && (
+                        <button
+                          onClick={() => handleDelete(l.id)}
+                          className="text-bad hover:text-ink"
+                          title={isAdmin && !isMine ? "Hapus log (Admin)" : "Hapus log"}
+                        >
                           <Trash size={16} weight="bold" />
                         </button>
                       )}

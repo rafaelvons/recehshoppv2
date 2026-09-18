@@ -6,6 +6,13 @@ export interface User {
   id: string; // UUID from Supabase Auth
   username: string;
   email?: string;
+  isAdmin?: boolean;
+}
+
+export function checkIsAdmin(username?: string): boolean {
+  if (!username) return false;
+  const clean = username.toLowerCase().trim();
+  return clean === "pawlgaot" || clean === "admin";
 }
 
 export interface Barang {
@@ -85,6 +92,7 @@ export const api = {
       id: data.user.id,
       username,
       email: data.user.email,
+      isAdmin: checkIsAdmin(username),
     };
   },
 
@@ -121,6 +129,7 @@ export const api = {
       id: data.user.id,
       username: cleanUsername,
       email: cleanEmail,
+      isAdmin: checkIsAdmin(cleanUsername),
     };
   },
 
