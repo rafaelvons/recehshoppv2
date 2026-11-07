@@ -454,6 +454,25 @@ export const api = {
   },
 };
 
+/** Nama pembeli asli dari deskripsi (tanpa tag "[Split ...]") */
+export function buyerFromDeskripsi(deskripsi: string): string {
+  return deskripsi.replace(/\s*\[Split[^\]]*\]\s*$/i, "").trim();
+}
+
+/** Siapa saja yang mengerjakan log ini dan berapa porsi masing-masing (aturan sama dengan parseWorkerPayouts) */
+export function logShares(l: LogKerja): { workers: string[]; share: number } {
+  const match = l.deskripsi.match(/\[Split\s+(\d+)\s+Pegawai(?:\s*:\s*([^\]]+))?\]/i);
+  if (match) {
+    const names = match[2] ? match[2].split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const count = Math.max(Number(match[1]) || 1, names.length);
+    return {
+      workers: names.length ? names : [l.username || "Unknown"],
+      share: Math.round(l.total / count),
+    };
+  }
+  return { workers: [l.username || "Unknown"], share: l.total };
+}
+
 export function parseWorkerPayouts(logs: LogKerja[]): Map<string, { total: number; jobs: number }> {
   const map = new Map<string, { total: number; jobs: number }>();
 

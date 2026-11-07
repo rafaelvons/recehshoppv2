@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trash, Users, UserCheck, MagnifyingGlass, CaretDown, Plus, Minus, X, ClockCounterClockwise } from "@phosphor-icons/react";
-import { api, checkIsAdmin, type Barang, type LogKerja, type User } from "../lib/api";
+import { Trash, Users, UserCheck, MagnifyingGlass, CaretDown, Plus, Minus, X, ClockCounterClockwise, DownloadSimple } from "@phosphor-icons/react";
+import { api, buyerFromDeskripsi, checkIsAdmin, type Barang, type LogKerja, type User } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { downloadLogsCSV } from "../lib/logExport";
+import DailyTarget from "../components/DailyTarget";
 
 function formatRupiah(n: number): string {
   return "Rp " + n.toLocaleString("id-ID");
-}
-
-/** Ambil nama pembeli asli dari deskripsi (buang tag "[Split ...]") */
-function buyerFromDeskripsi(deskripsi: string): string {
-  return deskripsi.replace(/\s*\[Split[^\]]*\]\s*$/i, "").trim();
 }
 
 interface CartLine {
@@ -425,6 +422,11 @@ export default function KerjaPage() {
         </button>
       </form>
 
+      {/* Grafik target harian per pegawai */}
+      {user?.username && (
+        <DailyTarget logs={logs} workers={profiles.map((p) => p.username)} me={user.username} />
+      )}
+
       {/* Tabel Log Kerja */}
       <div className="border-2 border-line bg-surface p-4">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -450,9 +452,22 @@ export default function KerjaPage() {
             </div>
           </div>
 
-          <div className="text-right">
-            <div className="text-[10px] font-extrabold uppercase tracking-wider text-ink-3">Total Pendapatan</div>
-            <div className="text-lg font-black text-brand-strong">{formatRupiah(totalSum)}</div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                downloadLogsCSV(displayedLogs, filterView === "mine" && user?.username ? user.username : "semua")
+              }
+              disabled={displayedLogs.length === 0}
+              className="inline-flex h-9 items-center gap-1.5 border-2 border-line bg-bg px-3 text-[11px] font-extrabold uppercase tracking-wide transition-all hover:bg-surface-2 disabled:opacity-50"
+              title="Download riwayat yang sedang ditampilkan sebagai CSV"
+            >
+              <DownloadSimple size={14} weight="bold" /> Export CSV
+            </button>
+            <div className="text-right">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-ink-3">Total Pendapatan</div>
+              <div className="text-lg font-black text-brand-strong">{formatRupiah(totalSum)}</div>
+            </div>
           </div>
         </div>
 
