@@ -63,7 +63,7 @@ export default function BarangPage() {
     const s = parseInt(stok, 10) || 0;
 
     if (!game || !item || !harga || harga <= 0) {
-      setFormError("Nama game, nama item, dan harga jual wajib diisi.");
+      setFormError("Nama game, nama item, dan harga itemku wajib diisi.");
       return;
     }
 
@@ -72,7 +72,7 @@ export default function BarangPage() {
       const baru = await api.createBarang({
         nama_game: game,
         nama_item: item,
-        harga_jual: harga,
+        harga_asli: harga,
         stok: s,
         nama_tipe: tipe,
       });
@@ -143,7 +143,7 @@ export default function BarangPage() {
             <div>
               <div className="text-base font-black uppercase tracking-tight">Tambah Barang Baru</div>
               <div className="text-[11px] font-black uppercase tracking-widest text-ink-3">
-                Harga asli itemku otomatis +12% dari harga jual
+                Isi harga itemku, harga jual otomatis -12%
               </div>
             </div>
             <button
@@ -186,7 +186,7 @@ export default function BarangPage() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] font-black uppercase tracking-wide text-ink-2">Harga Jual (Rp)</label>
+              <label className="text-[11px] font-black uppercase tracking-wide text-ink-2">Harga Itemku (Rp)</label>
               <input
                 type="number"
                 min={1}
@@ -196,6 +196,14 @@ export default function BarangPage() {
                 className="h-10 border-2 border-line bg-bg px-3 text-sm font-semibold"
                 required
               />
+              {Number(hargaJual) > 0 && (
+                <span className="text-[11px] font-bold text-ink-3">
+                  Harga jual (-12%):{" "}
+                  <span className="font-black text-brand-strong">
+                    {formatRupiah(Math.round(Number(hargaJual) * 0.88))}
+                  </span>
+                </span>
+              )}
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-[11px] font-black uppercase tracking-wide text-ink-2">Stok Awal</label>

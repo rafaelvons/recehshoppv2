@@ -153,12 +153,12 @@ export const api = {
   async createBarang(body: {
     nama_game: string;
     nama_item: string;
-    harga_jual: number;
+    harga_asli: number; // harga itemku; harga jual = -12%
     stok?: number;
     nama_tipe?: string;
   }): Promise<Barang> {
-    const harga_jual = body.harga_jual;
-    const harga_asli = Math.round(harga_jual / 0.88);
+    const harga_asli = body.harga_asli;
+    const harga_jual = Math.round(harga_asli * 0.88);
     const { data, error } = await supabase
       .from("barang")
       .insert({
@@ -176,6 +176,17 @@ export const api = {
     return data as Barang;
   },
 
+  /** Ubah harga itemku (harga_asli); harga jual dihitung otomatis -12% */
+  async updateHargaItemku(id: number, harga_asli: number): Promise<{ harga_asli: number; harga_jual: number }> {
+    const harga_jual = Math.round(harga_asli * 0.88);
+    const { error } = await supabase
+      .from("barang")
+      .update({ harga_asli, harga_jual, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    return { harga_asli, harga_jual };
+  },
+
   async updateHarga(id: number, harga_jual: number): Promise<{ ok: true }> {
     const harga_asli = Math.round(harga_jual / 0.88);
     const { error } = await supabase
@@ -184,6 +195,49 @@ export const api = {
       .eq("id", id);
     if (error) throw new Error(error.message);
     return { ok: true };
+  },
+
+  /**
+   * Terapkan hasil upload Excel itemku.
+   * - updates: barang yang sudah ada, harga_asli = kolom "Harga" Excel, harga_jual = harga_asli × 0.88
+   * - inserts: barang baru yang belum ada di database
+   */
+  async applyHargaExcel(
+    updates: { id: number; harga_asli: number; harga_jual: number }[],
+    inserts: Omit<Barang, "id">[]
+  ): Promise<{ updated: number; inserted: number; failed: string[] }> {
+    const now = new Date().toISOString();
+    const failed: string[] = [];
+    let updated = 0;
+
+    // Update per batch biar tidak membanjiri Supabase
+    const BATCH = 10;
+    for (let i = 0; i < updates.length; i += BATCH) {
+      const chunk = updates.slice(i, i + BATCH);
+      const results = await Promise.all(
+        chunk.map((u) =>
+          supabase
+            .from("barang")
+            .update({ harga_asli: u.harga_asli, harga_jual: u.harga_jual, updated_at: now })
+            .eq("id", u.id)
+        )
+      );
+      results.forEach((r, j) => {
+        if (r.error) failed.push(`ID ${chunk[j].id}: ${r.error.message}`);
+        else updated++;
+      });
+    }
+
+    let inserted = 0;
+    if (inserts.length) {
+      const { error } = await supabase
+        .from("barang")
+        .insert(inserts.map((b) => ({ ...b, updated_at: now })));
+      if (error) failed.push(`Tambah barang baru gagal: ${error.message}`);
+      else inserted = inserts.length;
+    }
+
+    return { updated, inserted, failed };
   },
 
   // Profiles
@@ -249,6 +303,63 @@ export const api = {
     if (error) throw new Error(error.message);
 
     return { count: workerCount, totalPerPerson };
+  },
+
+  /**
+   * Simpan beberapa barang sekaligus untuk pembeli & tim pekerja yang sama.
+   * Satu baris log per barang, nama pembeli & info split cukup diisi sekali.
+   */
+  async createLogs(body: {
+    user_id: string;
+    deskripsi: string;
+    items: { barang_id: number; qty: number }[];
+    worker_user_ids?: string[];
+  }): Promise<{ count: number; jumlahBarang: number; grandTotal: number; totalPerPerson: number }> {
+    if (!body.items.length) throw new Error("Belum ada barang yang dipilih");
+
+    const ids = Array.from(new Set(body.items.map((i) => i.barang_id)));
+    const { data: barangRows, error: barangErr } = await supabase
+      .from("barang")
+      .select("id, harga_jual")
+      .in("id", ids);
+    if (barangErr) throw new Error(barangErr.message);
+    const hargaMap = new Map((barangRows ?? []).map((b) => [b.id as number, b.harga_jual as number]));
+
+    const workerIds = body.worker_user_ids?.length ? body.worker_user_ids : [body.user_id];
+    const workerCount = workerIds.length;
+    const targetUserId = workerCount === 1 ? workerIds[0] : body.user_id;
+
+    let splitTag = "";
+    if (workerCount > 1) {
+      const { data: profs } = await supabase.from("profiles").select("id, username").in("id", workerIds);
+      const profileMap = new Map((profs ?? []).map((p) => [p.id, p.username]));
+      const usernames = workerIds.map((id) => profileMap.get(id)).filter(Boolean) as string[];
+      splitTag = ` [Split ${workerCount} Pegawai: ${usernames.join(", ")}]`;
+    }
+
+    const records = body.items.map((it) => {
+      const harga = hargaMap.get(it.barang_id);
+      if (harga == null) throw new Error(`Barang ID ${it.barang_id} tidak ditemukan`);
+      return {
+        user_id: targetUserId,
+        barang_id: it.barang_id,
+        deskripsi: `${body.deskripsi}${splitTag}`,
+        qty: it.qty,
+        harga_satuan: harga,
+        total: it.qty * harga,
+      };
+    });
+
+    const { error } = await supabase.from("log_kerja").insert(records);
+    if (error) throw new Error(error.message);
+
+    const grandTotal = records.reduce((s, r) => s + r.total, 0);
+    return {
+      count: workerCount,
+      jumlahBarang: records.length,
+      grandTotal,
+      totalPerPerson: Math.round(grandTotal / workerCount),
+    };
   },
 
   async getLogs(): Promise<LogKerja[]> {

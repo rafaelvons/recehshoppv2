@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trash, Users, UserCheck, MagnifyingGlass, CaretDown, Check } from "@phosphor-icons/react";
+import { Trash, Users, UserCheck, MagnifyingGlass, CaretDown, Plus, Minus, X, ClockCounterClockwise } from "@phosphor-icons/react";
 import { api, checkIsAdmin, type Barang, type LogKerja, type User } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -7,16 +7,25 @@ function formatRupiah(n: number): string {
   return "Rp " + n.toLocaleString("id-ID");
 }
 
+/** Ambil nama pembeli asli dari deskripsi (buang tag "[Split ...]") */
+function buyerFromDeskripsi(deskripsi: string): string {
+  return deskripsi.replace(/\s*\[Split[^\]]*\]\s*$/i, "").trim();
+}
+
+interface CartLine {
+  barang: Barang;
+  qty: string;
+}
+
 export default function KerjaPage() {
   const { user } = useAuth();
   const [items, setItems] = useState<Barang[]>([]);
   const [logs, setLogs] = useState<LogKerja[]>([]);
   const [profiles, setProfiles] = useState<User[]>([]);
-  const [selectedItem, setSelectedItem] = useState<Barang | null>(null);
+  const [cart, setCart] = useState<CartLine[]>([]);
   const [itemSearch, setItemSearch] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [deskripsi, setDeskripsi] = useState("");
-  const [qty, setQty] = useState<string>("1");
   const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
   const [filterView, setFilterView] = useState<"mine" | "all">("mine");
   const [loading, setLoading] = useState(false);
@@ -61,14 +70,46 @@ export default function KerjaPage() {
 
   const workerCount = Math.max(1, selectedWorkers.length);
 
-  const grossTotal = useMemo(() => {
-    const q = Number(qty) || 0;
-    return selectedItem ? q * selectedItem.harga_jual : 0;
-  }, [qty, selectedItem]);
+  const grossTotal = useMemo(
+    () => cart.reduce((sum, l) => sum + (Number(l.qty) || 0) * l.barang.harga_jual, 0),
+    [cart]
+  );
 
   const perWorkerShare = useMemo(() => {
     return Math.round(grossTotal / workerCount);
   }, [grossTotal, workerCount]);
+
+  // Daftar pembeli yang pernah dicatat (terbaru dulu) untuk isian otomatis
+  const pastBuyers = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const l of logs) {
+      const name = buyerFromDeskripsi(l.deskripsi);
+      if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name);
+    }
+    return Array.from(seen.values());
+  }, [logs]);
+
+  const addToCart = (b: Barang) => {
+    setCart((prev) => {
+      const found = prev.find((l) => l.barang.id === b.id);
+      if (found) {
+        return prev.map((l) => (l.barang.id === b.id ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l));
+      }
+      return [...prev, { barang: b, qty: "1" }];
+    });
+    setIsDropdownOpen(false);
+    setItemSearch("");
+  };
+
+  const setLineQty = (id: number, value: string) =>
+    setCart((prev) => prev.map((l) => (l.barang.id === id ? { ...l, qty: value } : l)));
+
+  const bumpLineQty = (id: number, delta: number) =>
+    setCart((prev) =>
+      prev.map((l) => (l.barang.id === id ? { ...l, qty: String(Math.max(1, (Number(l.qty) || 0) + delta)) } : l))
+    );
+
+  const removeLine = (id: number) => setCart((prev) => prev.filter((l) => l.barang.id !== id));
 
   const toggleWorker = (id: string) => {
     setSelectedWorkers((prev) => {
@@ -84,28 +125,35 @@ export default function KerjaPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    if (!selectedItem || !deskripsi.trim() || !Number(qty)) {
-      setError("Pilih barang, lengkapi deskripsi, dan qty");
+    if (!deskripsi.trim()) {
+      setError("Isi nama pembeli dulu");
+      return;
+    }
+    if (cart.length === 0) {
+      setError("Pilih minimal 1 barang");
+      return;
+    }
+    if (cart.some((l) => !(Number(l.qty) > 0))) {
+      setError("Qty setiap barang minimal 1");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.createLog({
+      const res = await api.createLogs({
         user_id: user.id,
-        barang_id: selectedItem.id,
         deskripsi: deskripsi.trim(),
-        qty: Number(qty),
+        items: cart.map((l) => ({ barang_id: l.barang.id, qty: Number(l.qty) })),
         worker_user_ids: selectedWorkers,
       });
       setDeskripsi("");
-      setQty("1");
-      setSelectedItem(null);
+      setCart([]);
       setItemSearch("");
+      const barangInfo = res.jumlahBarang > 1 ? `${res.jumlahBarang} barang` : "1 barang";
       setMsg(
         res.count > 1
-          ? `Log kerja berhasil di-split ke ${res.count} pegawai (${formatRupiah(res.totalPerPerson)} / orang)`
-          : "Log kerja tersimpan"
+          ? `Log kerja (${barangInfo}) di-split ke ${res.count} pegawai (${formatRupiah(res.totalPerPerson)} / orang)`
+          : `Log kerja tersimpan (${barangInfo}, ${formatRupiah(res.grandTotal)})`
       );
       setTimeout(() => setMsg(null), 3500);
       setLogs(await api.getLogs());
@@ -155,25 +203,56 @@ export default function KerjaPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 border-2 border-line bg-surface p-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {/* Searchable Barang Combobox */}
-          <div className="relative sm:col-span-2" ref={dropdownRef}>
+        <div className="grid gap-4">
+          {/* Nama Pembeli — sekali isi untuk semua barang */}
+          <div>
+            <label className="mb-1.5 block text-[12px] font-extrabold uppercase tracking-wide">Nama Pembeli</label>
+            <input
+              value={deskripsi}
+              onChange={(e) => setDeskripsi(e.target.value)}
+              list="pembeli-list"
+              placeholder="Ketik nama pembeli / buyer (otomatis muncul kalau pernah dicatat)..."
+              className="w-full border-2 border-line bg-bg px-3 py-2.5 text-sm font-semibold"
+              autoComplete="off"
+              required
+            />
+            <datalist id="pembeli-list">
+              {pastBuyers.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            {pastBuyers.length > 0 && !deskripsi && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-ink-3">
+                  <ClockCounterClockwise size={12} weight="bold" /> Pembeli terakhir:
+                </span>
+                {pastBuyers.slice(0, 6).map((n) => (
+                  <button
+                    type="button"
+                    key={n}
+                    onClick={() => setDeskripsi(n)}
+                    className="border-2 border-line/40 bg-bg px-2 py-0.5 text-[11px] font-bold hover:border-line"
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Searchable Barang Combobox — klik barang untuk menambahkan ke daftar */}
+          <div className="relative" ref={dropdownRef}>
             <label className="mb-1.5 block text-[12px] font-extrabold uppercase tracking-wide">
-              Cari & Pilih Barang / Jasa
+              Tambah Barang / Jasa (bisa lebih dari satu)
             </label>
             <div
               onClick={() => setIsDropdownOpen((prev) => !prev)}
               className="flex w-full cursor-pointer items-center justify-between border-2 border-line bg-bg px-3 py-2.5 text-sm font-semibold"
             >
-              {selectedItem ? (
-                <span>
-                  <span className="font-extrabold text-ink-3">[{selectedItem.nama_game}]</span>{" "}
-                  {selectedItem.nama_item} —{" "}
-                  <span className="font-black text-brand-strong">{formatRupiah(selectedItem.harga_jual)}</span>
-                </span>
-              ) : (
-                <span className="text-ink-3">Ketik / Klik untuk memilih dari 117 barang...</span>
-              )}
+              <span className="flex items-center gap-2 text-ink-3">
+                <Plus size={14} weight="bold" />
+                Klik untuk pilih dari {items.length} barang...
+              </span>
               <CaretDown size={16} weight="bold" className={`transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
             </div>
 
@@ -195,16 +274,13 @@ export default function KerjaPage() {
 
                 <div className="divide-y divide-line/30">
                   {filteredItems.map((b) => {
-                    const isSelected = selectedItem?.id === b.id;
+                    const inCart = cart.find((l) => l.barang.id === b.id);
                     return (
                       <div
                         key={b.id}
-                        onClick={() => {
-                          setSelectedItem(b);
-                          setIsDropdownOpen(false);
-                        }}
+                        onClick={() => addToCart(b)}
                         className={`flex cursor-pointer items-center justify-between px-3 py-2 text-xs transition-all hover:bg-brand/20 ${
-                          isSelected ? "bg-brand/30 font-bold" : ""
+                          inCart ? "bg-brand/30 font-bold" : ""
                         }`}
                       >
                         <div>
@@ -212,7 +288,7 @@ export default function KerjaPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-black text-brand-strong">{formatRupiah(b.harga_jual)}</span>
-                          {isSelected && <Check size={14} weight="bold" className="text-brand-strong" />}
+                          {inCart && <span className="text-[10px] font-black text-brand-strong">×{inCart.qty}</span>}
                         </div>
                       </div>
                     );
@@ -225,28 +301,59 @@ export default function KerjaPage() {
             )}
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-[12px] font-extrabold uppercase tracking-wide">Nama Pembeli</label>
-            <input
-              value={deskripsi}
-              onChange={(e) => setDeskripsi(e.target.value)}
-              placeholder="Masukkan nama pembeli / buyer..."
-              className="w-full border-2 border-line bg-bg px-3 py-2.5 text-sm font-semibold"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-[12px] font-extrabold uppercase tracking-wide">Qty / Jumlah Run</label>
-            <input
-              type="number"
-              min={1}
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              className="w-full border-2 border-line bg-bg px-3 py-2.5 text-sm font-semibold"
-              required
-            />
-          </div>
+          {/* Daftar barang yang dipilih */}
+          {cart.length > 0 && (
+            <div className="divide-y divide-line/30 border-2 border-line bg-bg">
+              {cart.map((l) => {
+                const subtotal = (Number(l.qty) || 0) * l.barang.harga_jual;
+                return (
+                  <div key={l.barang.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs sm:flex-nowrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-bold">
+                        <span className="font-extrabold text-ink-3">[{l.barang.nama_game}]</span> {l.barang.nama_item}
+                      </div>
+                      <div className="text-[11px] font-semibold text-ink-3">{formatRupiah(l.barang.harga_jual)} / run</div>
+                    </div>
+                    <div className="flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => bumpLineQty(l.barang.id, -1)}
+                        className="grid h-8 w-8 place-items-center border-2 border-line bg-surface-2 hover:bg-ink hover:text-bg"
+                        aria-label="Kurangi qty"
+                      >
+                        <Minus size={12} weight="bold" />
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        value={l.qty}
+                        onChange={(e) => setLineQty(l.barang.id, e.target.value)}
+                        className="h-8 w-14 border-y-2 border-line bg-bg text-center text-sm font-bold"
+                        aria-label="Qty"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => bumpLineQty(l.barang.id, 1)}
+                        className="grid h-8 w-8 place-items-center border-2 border-line bg-surface-2 hover:bg-ink hover:text-bg"
+                        aria-label="Tambah qty"
+                      >
+                        <Plus size={12} weight="bold" />
+                      </button>
+                    </div>
+                    <div className="w-28 text-right font-black text-brand-strong">{formatRupiah(subtotal)}</div>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(l.barang.id)}
+                      className="grid h-8 w-8 place-items-center text-bad hover:text-ink"
+                      aria-label="Hapus barang"
+                    >
+                      <X size={14} weight="bold" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Tim / Pegawai yang terlibat */}
@@ -283,10 +390,12 @@ export default function KerjaPage() {
           )}
         </div>
 
-        {selectedItem && (
+        {cart.length > 0 && (
           <div className="grid gap-2 border-2 border-line bg-bg p-4 sm:grid-cols-3">
             <div>
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-ink-3">Total Transaksi</div>
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-ink-3">
+                Total Transaksi ({cart.length} barang)
+              </div>
               <div className="text-base font-black">{formatRupiah(grossTotal)}</div>
             </div>
             <div>
