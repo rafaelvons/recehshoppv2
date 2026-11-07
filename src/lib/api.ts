@@ -203,7 +203,7 @@ export const api = {
    * - inserts: barang baru yang belum ada di database
    */
   async applyHargaExcel(
-    updates: { id: number; harga_asli: number; harga_jual: number }[],
+    updates: { id: number; harga_asli: number; harga_jual: number; id_item?: number | null }[],
     inserts: Omit<Barang, "id">[]
   ): Promise<{ updated: number; inserted: number; failed: string[] }> {
     const now = new Date().toISOString();
@@ -218,7 +218,13 @@ export const api = {
         chunk.map((u) =>
           supabase
             .from("barang")
-            .update({ harga_asli: u.harga_asli, harga_jual: u.harga_jual, updated_at: now })
+            .update({
+              harga_asli: u.harga_asli,
+              harga_jual: u.harga_jual,
+              updated_at: now,
+              // Simpan ID Item itemku untuk barang yang dulu ditambah manual
+              ...(u.id_item != null ? { id_item: u.id_item } : {}),
+            })
             .eq("id", u.id)
         )
       );

@@ -57,6 +57,20 @@ function key(game: string, item: string): string {
   return `${game.toLowerCase().trim()}||${item.toLowerCase().trim()}`;
 }
 
+/**
+ * Nama item yang dinormalisasi supaya "Striker" = "Striker / Grand Piece Online (GPO)"
+ * dan "Dragon Emperor's Gourd" = "Dragon Emperor Gourd".
+ */
+export function normalizeItemName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/grand\s+piece\s+online/g, " ")
+    .replace(/\bgpo\b/g, " ")
+    .replace(/['’`]s\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 /** Baca file Excel format itemku. Melempar Error kalau formatnya beda. */
 export async function parseItemkuExcel(file: File): Promise<{ rows: ExcelRow[]; skipped: string[] }> {
   const XLSX = await import("xlsx");
@@ -131,21 +145,35 @@ export async function parseItemkuExcel(file: File): Promise<{ rows: ExcelRow[]; 
 export function buildPreview(rows: ExcelRow[], items: Barang[]): PreviewRow[] {
   const byIdItem = new Map<number, Barang>();
   const byName = new Map<string, Barang>();
+  // Barang tanpa ID Item (ditambah manual) dicocokkan pakai nama yang dinormalisasi
+  const byNormName = new Map<string, Barang | null>(); // null = nama ganda, jangan ditebak
   for (const b of items) {
     if (b.id_item != null) byIdItem.set(Number(b.id_item), b);
     byName.set(key(b.nama_game, b.nama_item), b);
+    if (b.id_item == null) {
+      const n = normalizeItemName(b.nama_item);
+      byNormName.set(n, byNormName.has(n) ? null : b);
+    }
   }
 
+  const used = new Set<number>();
   return rows.map((row) => {
-    const existing =
+    let existing =
       (row.id_item != null ? byIdItem.get(row.id_item) : undefined) ??
       byName.get(key(row.nama_game, row.nama_item)) ??
       null;
+    if (!existing) {
+      const cand = byNormName.get(normalizeItemName(row.nama_item));
+      if (cand && !used.has(cand.id)) existing = cand;
+    }
+    if (existing) used.add(existing.id);
     const harga_asli_baru = row.harga;
     const harga_jual_baru = Math.round(row.harga * TAX_RATE);
     let status: PreviewStatus = "baru";
     if (existing) {
-      status = existing.harga_asli === harga_asli_baru && existing.harga_jual === harga_jual_baru ? "sama" : "ubah";
+      const hargaSama = existing.harga_asli === harga_asli_baru && existing.harga_jual === harga_jual_baru;
+      const perluIdItem = existing.id_item == null && row.id_item != null;
+      status = hargaSama && !perluIdItem ? "sama" : "ubah";
     }
     return { row, status, existing, harga_asli_baru, harga_jual_baru };
   });

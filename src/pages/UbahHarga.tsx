@@ -149,7 +149,12 @@ export default function UbahHargaPage() {
     try {
       const updates = preview
         .filter((p) => p.status === "ubah" && p.existing)
-        .map((p) => ({ id: p.existing!.id, harga_asli: p.harga_asli_baru, harga_jual: p.harga_jual_baru }));
+        .map((p) => ({
+          id: p.existing!.id,
+          harga_asli: p.harga_asli_baru,
+          harga_jual: p.harga_jual_baru,
+          id_item: p.existing!.id_item == null ? p.row.id_item : undefined,
+        }));
       const inserts = includeNew
         ? preview
             .filter((p) => p.status === "baru")
